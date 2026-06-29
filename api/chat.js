@@ -19,32 +19,39 @@ async function getToken() {
     body: `grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=${WXO_API_KEY}`
   });
   const data = await res.json();
-  if (!data.access_token) throw new Error('Failed to get IBM token');
+  if (!data.access_token) throw new Error('Failed to get IBM token: ' + JSON.stringify(data));
   return data.access_token;
 }
 
 async function createSession(token) {
-  const res = await fetch(`${WXO_INSTANCE_URL}/v2/agents/${AGENT_ID}/sessions`, {
+  const res = await fetch(`${WXO_INSTANCE_URL}/v1/agents/${AGENT_ID}/sessions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
-    }
+    },
+    body: JSON.stringify({})
   });
   const data = await res.json();
+  if (!data.session_id) throw new Error('Failed to create session: ' + JSON.stringify(data));
   return data.session_id;
 }
 
 async function sendToAgent(token, sessionId, message) {
   const res = await fetch(
-    `${WXO_INSTANCE_URL}/v2/agents/${AGENT_ID}/sessions/${sessionId}/message`,
+    `${WXO_INSTANCE_URL}/v1/agents/${AGENT_ID}/sessions/${sessionId}/message`,
     {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ input: { text: message } })
+      body: JSON.stringify({
+        input: {
+          message_type: 'text',
+          text: message
+        }
+      })
     }
   );
   return res.json();
