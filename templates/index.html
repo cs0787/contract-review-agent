@@ -175,7 +175,7 @@
             line-height: 1.4;
         }
 
-        /* Dropzone / Upload Area inspired by Reference visual weights */
+        /* Dropzone / Upload Area */
         .upload-container {
             border: 2px dashed var(--border-color);
             border-radius: 20px;
@@ -183,7 +183,7 @@
             text-align: center;
             cursor: pointer;
             background-color: var(--bg-card);
-            transition: border-color var(--transition-speed), transform var(--transition-speed);
+            transition: border-color var(--transition-speed), transform var(--transition-speed), background-color var(--transition-speed);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -193,6 +193,7 @@
 
         .upload-container:hover, .upload-container.dragover {
             border-color: var(--text-primary);
+            background-color: var(--bg-secondary);
         }
 
         .upload-icon {
@@ -204,6 +205,11 @@
             align-items: center;
             justify-content: center;
             margin-bottom: 0.5rem;
+            transition: background-color var(--transition-speed);
+        }
+
+        .upload-container:hover .upload-icon {
+            background-color: var(--bg-card);
         }
 
         .upload-icon svg {
@@ -568,7 +574,7 @@
             <h1 class="panel-title">Verify Policies</h1>
             <p class="panel-subtitle">Upload your draft corporate agreements, policy guidelines, or contracts to spot risks and retrieve compliance revisions.</p>
 
-            <!-- File dropzone -->
+            <!-- File dropzone (Full container triggers File Dialog) -->
             <div class="upload-container" id="drop-area">
                 <div class="upload-icon">
                     <svg viewBox="0 0 24 24">
@@ -670,18 +676,34 @@
         // Document state track
         let isDocumentLoaded = false;
 
-        // Theme Toggle Manager
+        // Theme Toggle Manager (with LocalStorage persistence)
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        themeToggle.textContent = savedTheme === 'light' ? 'Dark mode' : 'Light mode';
+
         themeToggle.addEventListener('click', () => {
             const currentTheme = document.documentElement.getAttribute('data-theme');
             const targetTheme = currentTheme === 'light' ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', targetTheme);
             themeToggle.textContent = targetTheme === 'light' ? 'Dark mode' : 'Light mode';
+            localStorage.setItem('theme', targetTheme);
+        });
+
+        // Trigger file dialog on clicking anywhere inside the drop-area
+        dropArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Prevent click events inside the file input itself from bubbling back up to dropArea
+        fileInput.addEventListener('click', (e) => {
+            e.stopPropagation();
         });
 
         // Setup Drag & Drop
         ['dragenter', 'dragover'].forEach(eventName => {
             dropArea.addEventListener(eventName, (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 dropArea.classList.add('dragover');
             }, false);
         });
@@ -689,6 +711,7 @@
         ['dragleave', 'drop'].forEach(eventName => {
             dropArea.addEventListener(eventName, (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 dropArea.classList.remove('dragover');
             }, false);
         });
@@ -701,18 +724,36 @@
             }
         });
 
-        browseBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length) {
                 handleFile(e.target.files[0]);
             }
         });
 
+        // UI loading state indicators
+        function setUploadLoadingState(isLoading) {
+            if (isLoading) {
+                dropArea.style.opacity = '0.6';
+                dropArea.style.pointerEvents = 'none';
+                browseBtn.textContent = 'Processing...';
+                analyzePastedBtn.setAttribute('disabled', 'true');
+                analyzePastedBtn.textContent = 'Processing...';
+            } else {
+                dropArea.style.opacity = '1';
+                dropArea.style.pointerEvents = 'auto';
+                browseBtn.textContent = 'Browse files';
+                analyzePastedBtn.removeAttribute('disabled');
+                analyzePastedBtn.textContent = 'Verify Pasted text';
+            }
+        }
+
         // Fallback pasted plain text submitter
         analyzePastedBtn.addEventListener('click', () => {
             const textValue = pastedText.value.trim();
             if (!textValue) return alert("Please paste text before submitting.");
             
+            setUploadLoadingState(true);
+
             fetch('/api/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -720,6 +761,7 @@
             })
             .then(res => res.json())
             .then(data => {
+                setUploadLoadingState(false);
                 if (data.status === 'success') {
                     showDocumentView("Pasted Text", data.text);
                     triggerInitialReview();
@@ -728,6 +770,7 @@
                 }
             })
             .catch(err => {
+                setUploadLoadingState(false);
                 console.error(err);
                 alert("Failed to submit pasted text.");
             });
@@ -738,12 +781,15 @@
             const formData = new FormData();
             formData.append('file', file);
 
+            setUploadLoadingState(true);
+
             fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             })
             .then(res => res.json())
             .then(data => {
+                setUploadLoadingState(false);
                 if (data.status === 'success') {
                     showDocumentView(data.filename, data.text);
                     triggerInitialReview();
@@ -752,6 +798,7 @@
                 }
             })
             .catch(err => {
+                setUploadLoadingState(false);
                 console.error(err);
                 alert("Failed to process file.");
             });
