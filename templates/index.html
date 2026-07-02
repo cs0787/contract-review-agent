@@ -84,7 +84,7 @@
             align-items: center;
         }
 
-        /* Monochromatic Pill Buttons */
+        /* Monochromatic Pill Buttons / Span Indicators */
         .btn-pill {
             background-color: var(--accent-black);
             color: var(--accent-white);
@@ -101,6 +101,7 @@
             gap: 0.5rem;
             transition: all var(--transition-speed) ease-in-out;
             text-decoration: none;
+            user-select: none;
         }
 
         .btn-pill:hover {
@@ -189,6 +190,7 @@
             align-items: center;
             gap: 1.25rem;
             box-shadow: var(--shadow-subtle);
+            user-select: none;
         }
 
         .upload-container:hover, .upload-container.dragover {
@@ -574,8 +576,8 @@
             <h1 class="panel-title">Verify Policies</h1>
             <p class="panel-subtitle">Upload your draft corporate agreements, policy guidelines, or contracts to spot risks and retrieve compliance revisions.</p>
 
-            <!-- File dropzone (Full container triggers File Dialog) -->
-            <div class="upload-container" id="drop-area">
+            <!-- File dropzone (Full container natively triggers File Dialog) -->
+            <label class="upload-container" id="drop-area" for="file-input">
                 <div class="upload-icon">
                     <svg viewBox="0 0 24 24">
                         <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/>
@@ -586,8 +588,8 @@
                     <p style="font-size: 0.85rem; color: var(--text-secondary);">Supports PDF, DOCX, TXT formats</p>
                 </div>
                 <input type="file" id="file-input" class="file-input" accept=".txt,.pdf,.docx,.md">
-                <button type="button" class="btn-pill" id="browse-btn">Browse files</button>
-            </div>
+                <span class="btn-pill" id="browse-btn">Browse files</span>
+            </label>
 
             <!-- Alternative Text Box Paste -->
             <div class="text-fallback-container" id="paste-container">
@@ -687,16 +689,6 @@
             document.documentElement.setAttribute('data-theme', targetTheme);
             themeToggle.textContent = targetTheme === 'light' ? 'Dark mode' : 'Light mode';
             localStorage.setItem('theme', targetTheme);
-        });
-
-        // Trigger file dialog on clicking anywhere inside the drop-area
-        dropArea.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        // Prevent click events inside the file input itself from bubbling back up to dropArea
-        fileInput.addEventListener('click', (e) => {
-            e.stopPropagation();
         });
 
         // Setup Drag & Drop
