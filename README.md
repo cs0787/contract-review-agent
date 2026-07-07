@@ -1,142 +1,220 @@
-CONTRX // Hybrid RAG Contract & Policy Review Agent
+# CONTRX — Contract Review Agent
 
-CONTRX is a lightweight, responsive, and privacy-conscious compliance assistant
-designed to audit corporate policies, identify contractual risks, and propose
-actionable compliance redrafts.
+<div align="center">
 
-Powered by the IBM watsonx.ai ecosystem and integrated with live web factual
-grounding, the application implements a hybrid search pipeline. It
-cross-references localized document context with real-world, real-time legal and
-regulatory standards to deliver accurate, context-aware risk audits while
-mitigating standard LLM hallucinations.
+### AI-Powered Hybrid RAG Compliance & Contract Review System
 
-🚀 Key Features & Architectural Highlights
+**IBM watsonx.ai • Granite Models • Hybrid RAG • Flask • Live Legal Grounding**
 
-1. Enterprise AI Orchestration (IBM watsonx.ai)
+</div>
 
-  - Core Language Model (ibm/granite-3-8b-instruct): Leverages IBM's
-    high-efficiency, instruction-tuned Granite model. It is optimized for
-    structural logical analysis, parsing complex legal/contractual terminology,
-    and generating formatted policy redrafts.
-  - Semantic Embeddings (ibm/slate-125m-english-rtrvr): Standardizes extracted
-    text chunks into high-dimensional vector representations using Watsonx’s
-    native retrieval-optimized embedding model.
+---
 
-2. High-Efficiency Local RAG Pipeline
+## IBM watsonx.ai × Granite Models × Flask
 
-  - Zero-Dependency Vector Store: Uses a custom-built Python vector engine
-    calculating Cosine Similarity directly on the server. This bypasses the
-    heavy binary compilation and deployment footprint of database dependencies
-    like FAISS or Chroma.
-  - Strict Session-Isolation: No user data is persistently stored in a shared
-    external cloud database. Document chunks and embeddings are held temporarily
-    in-memory (RAG_STORE) and are completely purged when the session resets or
-    times out, protecting proprietary enterprise data.
+CONTRX is an AI-powered Contract Review Agent designed to analyze contracts, corporate policies, NDAs, and compliance documents with speed and accuracy. It combines IBM Granite foundation models with a Hybrid Retrieval-Augmented Generation (RAG) pipeline to perform contextual risk analysis, suggest compliance improvements, and generate professional policy redrafts. By integrating live web-based legal grounding, the system reduces hallucinations while providing accurate, up-to-date compliance insights in a secure, privacy-first environment.
 
-3. Live Web-Search Fact Grounding
+---
 
-  - Tavily Search Integration: To counter standard model knowledge-cutoff and
-    hallucination constraints, the agent dynamically crawls live legal and
-    statutory databases (like GDPR revisions, SEC updates, or regional tax law
-    amendments) and appends this context to the active prompt.
+# Features
 
-4. Native Document Ingestion
+## Enterprise AI with IBM watsonx.ai
 
-  - Multi-Format Extraction: Seamlessly parses plain-text structures from
-    uploaded files using dedicated stream libraries (PyPDF2 and python-docx)
-    directly in the serverless environment.
-  - Visual File-Handling UI: Modern monochromatic layout utilizing native HTML
-    <label> mapping to ensure responsive, cross-browser drag-and-drop file
-    upload.
+- **IBM Granite 3 8B Instruct** (`ibm/granite-3-8b-instruct`)
+  - Advanced legal reasoning
+  - Contract clause interpretation
+  - Risk analysis
+  - Compliance-aware document redrafting
 
-🛠️ Technology Stack
+- **IBM Slate Embeddings**
+  (`ibm/slate-125m-english-rtrvr`)
+  - Retrieval-optimized semantic embeddings
+  - High-quality contextual document search
+  - Accurate similarity matching for RAG
 
-| Layer                  | Technologies Used                                                           |
-| :--------------------- | :-------------------------------------------------------------------------- |
-| **Generative AI**      | IBM watsonx.ai, `ibm/granite-3-8b-instruct`, `ibm/slate-125m-english-rtrvr` |
-| **Search & Grounding** | Tavily Search API, Pure Python Cosine Similarity                            |
-| **Backend Framework**  | Python, Flask, python-dotenv, PyPDF2, python-docx                           |
-| **Frontend UI/UX**     | HTML5, CSS3 (System-adaptive Dark/Light mode), Vanilla JS, Marked.js        |
-| **Cloud Deployment**   | Vercel Serverless Functions (`@vercel/python` runtime)                      |
+---
 
-💻 Local Setup & Installation
+## Hybrid RAG Architecture
 
-1. Clone the Repository
+- Custom lightweight in-memory vector database
+- Cosine Similarity based semantic retrieval
+- Context-aware document chunking
+- No FAISS or Chroma dependency
+- Faster deployment with minimal resource usage
 
-git clone https://github.com/your-username/contrx-agent.git
-cd contrx-agent
+---
 
-2. Configure Environment Variables
+## Live Legal Fact Grounding
 
-Create a file named .env in the root directory:
+Integrated with **Tavily Search API** to retrieve real-time legal and regulatory information, enabling:
 
-FLASK_SECRET_KEY="generate_a_random_secure_string"
-WATSONX_APIKEY="your_ibm_cloud_apikey"
-WATSONX_PROJECT_ID="your_watsonx_project_id"
-WATSONX_URL="https://us-south.ml.cloud.ibm.com"
-TAVILY_API_KEY="your_tavily_search_api_key"
+- Updated compliance standards
+- Regulatory amendments
+- GDPR references
+- Corporate governance updates
+- Region-specific legal guidance
 
-3. Install Dependencies
+This significantly reduces LLM hallucinations by grounding responses with live external knowledge.
 
-pip install -r requirements.txt
+---
 
-4. Run Locally
+## Privacy-First Design
 
-python app.py
+- Session-isolated document processing
+- Temporary in-memory storage
+- No persistent cloud vector database
+- Automatic data cleanup after session expiration
+- Suitable for confidential enterprise documents
 
-Open your browser and navigate to http://127.0.0.1:5000.
+---
 
-☁️ Serverless Deployment (Vercel)
+## Native Document Processing
 
-The project is structured to deploy smoothly using Vercel Serverless Functions.
+Supports multiple document formats including:
 
-1. Vercel Configuration (vercel.json)
+- PDF
+- DOCX
+- TXT
 
-Since LLM generations and live API queries can occasionally exceed Vercel's
-default 10-second serverless execution limit, the project overrides the routing
-engine and extends the execution window to Vercel's Hobby-tier maximum of 60
-seconds:
+Using:
 
-{
-  "version": 2,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/app.py"
-    }
-  ],
-  "functions": {
-    "app.py": {
-      "maxDuration": 60
-    }
-  }
-}
+- PyPDF2
+- python-docx
 
-2. Environment Variables
+Documents are automatically parsed, chunked, embedded, and indexed for semantic retrieval.
 
-Add your .env variables directly in your Vercel Project Settings → Environment
-Variables dashboard before triggering the deployment.
+---
 
-🔒 Security Best Practices
+## Intelligent Contract Analysis
 
-To safeguard enterprise credentials, never commit your .env file to public
-source control. Ensure a .gitignore file is active in your root repository with
-the following configurations:
+The agent can:
 
-# Local environment variables
-.env
-.env.local
+- Detect risky clauses
+- Identify missing legal provisions
+- Highlight compliance issues
+- Suggest safer contractual language
+- Generate professional policy redrafts
+- Explain legal risks in natural language
 
-# Python caches
-__pycache__/
-*.pyc
+---
 
-# OS caches
-.DS_Store
+## Modern User Interface
 
-⚖️ Disclaimer
+- Responsive monochrome design
+- Drag-and-drop document upload
+- Real-time AI analysis
+- Clean enterprise dashboard
+- Lightweight Flask backend
 
-CONTRX is an administrative assistance tool powered by generative AI and
-live-retrieved data. It is meant for administrative, organizational, and
-preliminary review assistance only. It does not constitute formal legal
-representation, binding compliance clearance, or formal legal advice.
+---
+
+# Technology Stack
+
+### Backend
+
+- Flask
+- Python
+
+### AI & Machine Learning
+
+- IBM watsonx.ai
+- IBM Granite 3 8B Instruct
+- IBM Slate Embedding Model
+- Hybrid Retrieval-Augmented Generation (RAG)
+
+### Search & Grounding
+
+- Tavily Search API
+
+### Document Processing
+
+- PyPDF2
+- python-docx
+
+### Frontend
+
+- HTML5
+- CSS3
+- JavaScript
+
+---
+
+# System Workflow
+
+```
+Upload Document
+        │
+        ▼
+Document Parsing
+        │
+        ▼
+Text Chunking
+        │
+        ▼
+IBM Slate Embeddings
+        │
+        ▼
+In-Memory Vector Store
+        │
+        ▼
+Cosine Similarity Retrieval
+        │
+        ▼
+Live Tavily Legal Search
+        │
+        ▼
+IBM Granite LLM
+        │
+        ▼
+Risk Analysis + Compliance Report + Policy Redraft
+```
+
+---
+
+# IBM Technologies Used
+
+- IBM watsonx.ai
+- IBM Granite 3 8B Instruct
+- IBM Slate 125M English Retriever
+- IBM AI Foundation Models
+- IBM Developer Ecosystem
+
+---
+
+# Key Advantages
+
+- Lightweight Hybrid RAG
+- Privacy-focused architecture
+- No external vector database
+- Real-time legal grounding
+- Enterprise-ready deployment
+- Fast semantic search
+- AI-powered compliance auditing
+- Explainable contract analysis
+
+---
+
+# Future Enhancements
+
+- Multi-language contract support
+- Team collaboration
+- Version comparison
+- Clause-level annotations
+- Compliance score dashboard
+- Organization policy knowledge base
+- Role-based authentication
+- Audit history
+
+---
+
+# License
+
+This project is intended for educational, research, and enterprise AI experimentation purposes.
+
+---
+
+<div align="center">
+
+### Built with ❤️ using IBM watsonx.ai, Granite Models, Flask & Hybrid RAG
+
+</div>
