@@ -73,7 +73,7 @@ cos_client = ibm_boto3.client(
     config=Config(signature_version="s3v4")
 )
 
-# Limit raw text character length to run safely inside 10-second request windows
+# Limit raw text character length to run safely inside standard request windows
 MAX_CHAR_LIMIT = 150000 
 
 def save_session_state(session_id, data_store):
@@ -103,7 +103,8 @@ def load_session_state(session_id):
             Key=f"sessions/{session_id}.json"
         )
         return json.loads(response['Body'].read().decode('utf-8'))
-    except Exception:
+    except Exception as e:
+        app.logger.error(f"Failed to load session state from IBM COS: {str(e)}")
         # Return a clean template structure if file does not exist yet
         return {
             "document_text": "",
@@ -378,9 +379,9 @@ def upload_document():
         filename = "Pasted Clipboard Text"
             
     if text:
-        # Enforce serverless safe execution size limit
+        # Enforce safe execution size limit
         if len(text) > MAX_CHAR_LIMIT:
-            text = text[:MAX_CHAR_LIMIT] + "\n\n[Document automatically truncated to fit serverless processing limits]"
+            text = text[:MAX_CHAR_LIMIT] + "\n\n[Document automatically truncated to fit processing limits]"
 
         data_store = {
             "document_text": text,
@@ -397,8 +398,12 @@ def upload_document():
                 data_store["chunks"] = chunks
                 data_store["embeddings"] = embeddings
         
-        # Save complete parsed state document to IBM COS bucket
-        save_session_state(session_id, data_store)
+        # Save complete parsed state document to IBM COS bucket and verify success
+        if not save_session_state(session_id, data_store):
+            return jsonify({
+                "status": "error", 
+                "message": "Failed to save document state to IBM Cloud Object Storage. Please verify that your COS_BUCKET name, regional COS_ENDPOINT, and HMAC credentials are correct inside your Railway variables."
+            })
         
         return jsonify({"status": "success", "text": text, "filename": filename})
 
@@ -425,7 +430,7 @@ def chat():
     
     if is_initial_review:
         if not doc_text:
-            return jsonify({"status": "error", "message": "Please upload or paste a document first."})
+            return jsonify({"status": "error", "message": "Please upload or paste a document first (or your session state could not be retrieved from IBM COS)."})
         user_msg = "Please perform an initial compliance and risk review of this document, and provide concrete recommendations based on best practices and regulations."
         history = []
         data_store["chat_history"] = []
