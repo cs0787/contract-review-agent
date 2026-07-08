@@ -27,6 +27,17 @@ OPERATIONAL PROTOCOLS:
 6. Structure your output clearly using Markdown: bold section headings, logical list items, and clean comparative tables for "Current State vs. Proposed Standard/Change".
 7. Conclude your analysis with a professional note: "Disclaimer: This analysis is powered by AI and live-retrieved data for administrative assistance. It does not constitute formal legal representation or binding legal advice."
 8. Maintain an objective, balanced, and humble tone. Never make overconfident assertions, claim perfect legal coverage, or synthesize/hallucinate legal statutes without source evidence.
+
+RESULT FORMAT:
+The final review report includes:
+1.Executive Summary 
+2.Compliance Status 
+3.Clause-by-Clause Analysis 
+4.Risk Level 
+5.Suggested Corrections 
+6.Missing Clauses 
+7.Overall Contract Score 
+
 """
 
 # Fetch Watsonx Credentials
@@ -39,9 +50,31 @@ WATSONX_EMBEDDING_MODEL_ID = os.getenv("WATSONX_EMBEDDING_MODEL_ID", "ibm/slate-
 # Real-World Search API Config
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
-# Server-side in-memory store for session embeddings
-# Map: session_id -> { "chunks": [str, ...], "embeddings": [[float, ...], ...] }
-RAG_STORE = {}
+# =====================================================================
+# SERVER-SIDE CONSOLIDATED SESSION STORE
+# =====================================================================
+# Map: session_id -> { 
+#    "chunks": [str, ...], 
+#    "embeddings": [[float, ...], ...],
+#    "document_text": str,
+#    "chat_history": [dict, ...]
+# }
+# This keeps client cookies small (<100 bytes) and bypasses Flask's 4KB cookie limit.
+SESSION_STORE = {}
+
+def get_session_data():
+    """Retrieves or initializes the server-side memory partition for the current user."""
+    session_id = session.get("session_id")
+    if not session_id or session_id not in SESSION_STORE:
+        session_id = str(uuid.uuid4())
+        session["session_id"] = session_id
+        SESSION_STORE[session_id] = {
+            "chunks": [],
+            "embeddings": [],
+            "document_text": "",
+            "chat_history": []
+        }
+    return session_id, SESSION_STORE[session_id]
 
 # =====================================================================
 # PURE PYTHON RAG UTILITIES (Math & Chunking)
@@ -83,11 +116,11 @@ def cosine_similarity(v1, v2):
     return dot_product(v1, v2) / (mag1 * mag2)
 
 # =====================================================================
-# LIVE WEB RETRIEVAL (To mitigate hallucinations with real-world data)
+# LIVE WEB RETRIEVAL (To ground model generations in real-world facts)
 # =====================================================================
 
 def search_web(query, max_results=3):
-    """Fetches real-world search results from Tavily API to ground the model."""
+    """Fetches search results from Tavily API to provide current regulatory standard context."""
     if not TAVILY_API_KEY:
         app.logger.warning("TAVILY_API_KEY not found in environment. Web search skipped.")
         return ""
@@ -229,8 +262,13 @@ def extract_text(file_stream, filename):
     
     elif ext == 'pdf':
         try:
-            import PyPDF2
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_stream.read()))
+            # Prefer modern pypdf first, fall back to PyPDF2 if that is installed
+            try:
+                import pypdf as pdf_lib
+            except ImportError:
+                import PyPDF2 as pdf_lib
+                
+            pdf_reader = pdf_lib.PdfReader(io.BytesIO(file_stream.read()))
             text_slices = []
             for page in pdf_reader.pages:
                 text_slices.append(page.extract_text() or "")
@@ -254,7 +292,7 @@ def extract_text(file_stream, filename):
 
 def retrieve_relevant_chunks(session_id, query, top_k=5):
     """Finds top_k most relevant chunks using Cosine Similarity."""
-    store = RAG_STORE.get(session_id)
+    store = SESSION_STORE.get(session_id)
     if not store or not store.get("chunks") or not store.get("embeddings"):
         return []
         
@@ -277,24 +315,14 @@ def retrieve_relevant_chunks(session_id, query, top_k=5):
 
 @app.route('/')
 def index():
-    # Initialize a clean session ID if missing
-    if "session_id" not in session:
-        session["session_id"] = str(uuid.uuid4())
-        session["document_text"] = ""
-        session["chat_history"] = []
+    # Setup server-side partition and clear client data
+    get_session_data()
     return render_template('index.html')
 
 @app.route('/api/upload', methods=['POST'])
 def upload_document():
     """Handles parsing from files or custom text pastes and builds vector indexes."""
-    session_id = session.get("session_id")
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        session["session_id"] = session_id
-
-    # Clean old index if updating
-    if session_id in RAG_STORE:
-        del RAG_STORE[session_id]
+    session_id, data_store = get_session_data()
 
     text = ""
     filename = ""
@@ -305,24 +333,24 @@ def upload_document():
         filename = file.filename
     
     elif request.is_json:
-        data = request.get_json()
+        data = request.get_json() or {}
         text = data.get("text", "").strip()
         filename = "Pasted Clipboard Text"
             
     if text:
-        session["document_text"] = text
-        session["chat_history"] = []
-        session.modified = True
+        # Reset local structures safely in server-side session memory
+        data_store["document_text"] = text
+        data_store["chat_history"] = []
+        data_store["chunks"] = []
+        data_store["embeddings"] = []
 
         # Process chunks and vector index
         chunks = chunk_text(text)
         if chunks:
             embeddings = get_watsonx_embeddings_batched(chunks)
             if embeddings:
-                RAG_STORE[session_id] = {
-                    "chunks": chunks,
-                    "embeddings": embeddings
-                }
+                data_store["chunks"] = chunks
+                data_store["embeddings"] = embeddings
         
         return jsonify({"status": "success", "text": text, "filename": filename})
 
@@ -338,14 +366,15 @@ def chat():
     if not user_msg and not is_initial_review:
         return jsonify({"status": "error", "message": "Message content is empty."})
     
-    doc_text = session.get("document_text", "")
-    session_id = session.get("session_id")
-    history = session.get("chat_history", [])
+    session_id, data_store = get_session_data()
+    doc_text = data_store["document_text"]
+    history = data_store["chat_history"]
     
     if is_initial_review:
         if not doc_text:
             return jsonify({"status": "error", "message": "Please upload or paste a document first."})
         user_msg = "Please perform an initial compliance and risk review of this document, and provide concrete recommendations based on best practices and regulations."
+        data_store["chat_history"] = []
         history = []
 
     # 1. LOCAL DOCUMENT CONTEXT (Via Vector Search)
@@ -361,7 +390,7 @@ def chat():
         if retrieved_chunks:
             context_text = "\n\n---\n\n".join(retrieved_chunks)
         else:
-            # Fallback to simple context truncation if search failed
+            # Fallback to simple context truncation if search returned empty
             context_text = doc_text[:3000]
 
     # 2. REAL-WORLD DATA CONTEXT (Via Live Web Search)
@@ -393,13 +422,12 @@ def chat():
     
     ai_response = query_watsonx(full_prompt)
     
-    # Save step to current session's memory
+    # Save step to server-side session's memory
     history.append({
         "content": user_msg,
         "response": ai_response
     })
-    session["chat_history"] = history
-    session.modified = True
+    data_store["chat_history"] = history
     
     return jsonify({
         "status": "success",
@@ -411,12 +439,11 @@ def chat():
 def clear_session():
     """Wipes active workspace states and deletes the in-memory vectors."""
     session_id = session.get("session_id")
-    if session_id in RAG_STORE:
-        del RAG_STORE[session_id]
+    if session_id in SESSION_STORE:
+        del SESSION_STORE[session_id]
         
-    session["document_text"] = ""
-    session["chat_history"] = []
-    session.modified = True
+    # Reinitialize a clean partition
+    get_session_data()
     return jsonify({"status": "success"})
 
 if __name__ == '__main__':
