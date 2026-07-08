@@ -1,133 +1,147 @@
-CONTRX — Contract Review Agent
+# CONTRX — Contract Review Agent
 
-AI-Powered Hybrid RAG Compliance & Contract Review System
+<div align="center">
 
-IBM watsonx.ai • Granite Models • Hybrid RAG • Flask • Live Legal Grounding
+### AI-Powered Hybrid RAG Compliance & Contract Review System
 
-IBM watsonx.ai × Granite Models × Flask
+**IBM watsonx.ai • Granite Models • Hybrid RAG • Flask • Live Legal Grounding**
 
-CONTRX is an AI-powered Contract Review Agent designed to analyze contracts,
-corporate policies, NDAs, and compliance documents with speed and accuracy. It
-combines IBM Granite foundation models with a Hybrid Retrieval-Augmented
-Generation (RAG) pipeline to perform contextual risk analysis, suggest
-compliance improvements, and generate professional policy redrafts. By
-integrating live web-based legal grounding, the system reduces hallucinations
-while providing accurate, up-to-date compliance insights in a secure,
-privacy-first environment.
+</div>
 
-Features
+---
 
-Enterprise AI with IBM watsonx.ai
+## IBM watsonx.ai × Granite Models × Flask
 
-  - IBM Granite 3 8B Instruct (ibm/granite-3-8b-instruct)
+CONTRX is an AI-powered Contract Review Agent designed to analyze contracts, corporate policies, NDAs, and compliance documents with speed and accuracy. It combines IBM Granite foundation models with a Hybrid Retrieval-Augmented Generation (RAG) pipeline to perform contextual risk analysis, suggest compliance improvements, and generate professional policy redrafts. By integrating live web-based legal grounding, the system reduces hallucinations while providing accurate, up-to-date compliance insights in a secure, privacy-first environment.
 
-      - Advanced legal reasoning
-      - Contract clause interpretation
-      - Risk analysis
-      - Compliance-aware document redrafting
+---
 
-  - IBM Slate Embeddings (ibm/slate-125m-english-rtrvr)
+# Features
 
-      - Retrieval-optimized semantic embeddings
-      - High-quality contextual document search
-      - Accurate similarity matching for RAG
+## Enterprise AI with IBM watsonx.ai
 
-Hybrid RAG Architecture
+- **IBM Granite 3 8B Instruct** (`ibm/granite-3-8b-instruct`)
+  - Advanced legal reasoning
+  - Contract clause interpretation
+  - Risk analysis
+  - Compliance-aware document redrafting
 
-  - Custom lightweight in-memory vector database
-  - Cosine Similarity based semantic retrieval
-  - Context-aware document chunking
-  - No FAISS or Chroma dependency
-  - Faster deployment with minimal resource usage
+- **IBM Slate Embeddings**
+  (`ibm/slate-125m-english-rtrvr`)
+  - Retrieval-optimized semantic embeddings
+  - High-quality contextual document search
+  - Accurate similarity matching for RAG
 
-Live Legal Fact Grounding
+---
 
-Integrated with Tavily Search API to retrieve real-time legal and regulatory
-information, enabling:
+## Hybrid RAG Architecture
 
-  - Updated compliance standards
-  - Regulatory amendments
-  - GDPR references
-  - Corporate governance updates
-  - Region-specific legal guidance
+- Custom lightweight in-memory vector database
+- Cosine Similarity based semantic retrieval
+- Context-aware document chunking
+- No FAISS or Chroma dependency
+- Faster deployment with minimal resource usage
 
-This significantly reduces LLM hallucinations by grounding responses with live
-external knowledge.
+---
 
-Privacy-First Design
+## Live Legal Fact Grounding
 
-  - Session-isolated document processing
-  - Temporary in-memory storage
-  - No persistent cloud vector database
-  - Automatic data cleanup after session expiration
-  - Suitable for confidential enterprise documents
+Integrated with **Tavily Search API** to retrieve real-time legal and regulatory information, enabling:
 
-Native Document Processing
+- Updated compliance standards
+- Regulatory amendments
+- GDPR references
+- Corporate governance updates
+- Region-specific legal guidance
+
+This significantly reduces LLM hallucinations by grounding responses with live external knowledge.
+
+---
+
+## Privacy-First Design
+
+- Session-isolated document processing
+- Temporary in-memory storage
+- No persistent cloud vector database
+- Automatic data cleanup after session expiration
+- Suitable for confidential enterprise documents
+
+---
+
+## Native Document Processing
 
 Supports multiple document formats including:
 
-  - PDF
-  - DOCX
-  - TXT
+- PDF
+- DOCX
+- TXT
 
 Using:
 
-  - PyPDF2
-  - python-docx
+- PyPDF2
+- python-docx
 
-Documents are automatically parsed, chunked, embedded, and indexed for semantic
-retrieval.
+Documents are automatically parsed, chunked, embedded, and indexed for semantic retrieval.
 
-Intelligent Contract Analysis
+---
+
+## Intelligent Contract Analysis
 
 The agent can:
 
-  - Detect risky clauses
-  - Identify missing legal provisions
-  - Highlight compliance issues
-  - Suggest safer contractual language
-  - Generate professional policy redrafts
-  - Explain legal risks in natural language
+- Detect risky clauses
+- Identify missing legal provisions
+- Highlight compliance issues
+- Suggest safer contractual language
+- Generate professional policy redrafts
+- Explain legal risks in natural language
 
-Modern User Interface
+---
 
-  - Responsive monochrome design
-  - Drag-and-drop document upload
-  - Real-time AI analysis
-  - Clean enterprise dashboard
-  - Lightweight Flask backend
+## Modern User Interface
 
-Technology Stack
+- Responsive monochrome design
+- Drag-and-drop document upload
+- Real-time AI analysis
+- Clean enterprise dashboard
+- Lightweight Flask backend
 
-Backend
+---
 
-  - Flask
-  - Python
+# Technology Stack
 
-AI & Machine Learning
+### Backend
 
-  - IBM watsonx.ai
-  - IBM Granite 3 8B Instruct
-  - IBM Slate Embedding Model
-  - Hybrid Retrieval-Augmented Generation (RAG)
+- Flask
+- Python
 
-Search & Grounding
+### AI & Machine Learning
 
-  - Tavily Search API
+- IBM watsonx.ai
+- IBM Granite 3 8B Instruct
+- IBM Slate Embedding Model
+- Hybrid Retrieval-Augmented Generation (RAG)
 
-Document Processing
+### Search & Grounding
 
-  - PyPDF2
-  - python-docx
+- Tavily Search API
 
-Frontend
+### Document Processing
 
-  - HTML5
-  - CSS3
-  - JavaScript
+- PyPDF2
+- python-docx
 
-System Workflow
+### Frontend
 
+- HTML5
+- CSS3
+- JavaScript
+
+---
+
+# System Workflow
+
+```
 Upload Document
         │
         ▼
@@ -153,42 +167,54 @@ IBM Granite LLM
         │
         ▼
 Risk Analysis + Compliance Report + Policy Redraft
+```
 
-IBM Technologies Used
+---
 
-  - IBM watsonx.ai
-  - IBM Granite 3 8B Instruct
-  - IBM Slate 125M English Retriever
-  - IBM AI Foundation Models
-  - IBM Developer Ecosystem
+# IBM Technologies Used
 
-Key Advantages
+- IBM watsonx.ai
+- IBM Granite 3 8B Instruct
+- IBM Slate 125M English Retriever
+- IBM AI Foundation Models
+- IBM Developer Ecosystem
 
-  - Lightweight Hybrid RAG
-  - Privacy-focused architecture
-  - No external vector database
-  - Real-time legal grounding
-  - Enterprise-ready deployment
-  - Fast semantic search
-  - AI-powered compliance auditing
-  - Explainable contract analysis
+---
 
-Future Enhancements
+# Key Advantages
 
-  - Multi-language contract support
-  - Team collaboration
-  - Version comparison
-  - Clause-level annotations
-  - Compliance score dashboard
-  - Organization policy knowledge base
-  - Role-based authentication
-  - Audit history
+- Lightweight Hybrid RAG
+- Privacy-focused architecture
+- No external vector database
+- Real-time legal grounding
+- Enterprise-ready deployment
+- Fast semantic search
+- AI-powered compliance auditing
+- Explainable contract analysis
 
-License
+---
 
-This project is intended for educational, research, and enterprise AI
-experimentation purposes.
+# Future Enhancements
 
-Built with ❤️ using IBM watsonx.ai, Granite Models, Flask & Hybrid RAG
+- Multi-language contract support
+- Team collaboration
+- Version comparison
+- Clause-level annotations
+- Compliance score dashboard
+- Organization policy knowledge base
+- Role-based authentication
+- Audit history
 
-is this read mE cORRECT
+---
+
+# License
+
+This project is intended for educational, research, and enterprise AI experimentation purposes.
+
+---
+
+<div align="center">
+
+### Built with ❤️ using IBM watsonx.ai, Granite Models, Flask & Hybrid RAG
+
+</div>
