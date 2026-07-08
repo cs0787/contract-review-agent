@@ -2,7 +2,10 @@ import os
 import io
 import uuid
 import math
+import json
 import requests
+import ibm_boto3
+from ibm_botocore.client import Config
 from flask import Flask, render_template, request, jsonify, session
 from dotenv import load_dotenv
 
@@ -37,7 +40,6 @@ The final review report includes:
 5.Suggested Corrections 
 6.Missing Clauses 
 7.Overall Contract Score 
-
 """
 
 # Fetch Watsonx Credentials
@@ -51,30 +53,60 @@ WATSONX_EMBEDDING_MODEL_ID = os.getenv("WATSONX_EMBEDDING_MODEL_ID", "ibm/slate-
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # =====================================================================
-# SERVER-SIDE CONSOLIDATED SESSION STORE
+# IBM CLOUD OBJECT STORAGE (COS) SETUP
 # =====================================================================
-# Map: session_id -> { 
-#    "chunks": [str, ...], 
-#    "embeddings": [[float, ...], ...],
-#    "document_text": str,
-#    "chat_history": [dict, ...]
-# }
-# This keeps client cookies small (<100 bytes) and bypasses Flask's 4KB cookie limit.
-SESSION_STORE = {}
+COS_ENDPOINT = os.getenv("COS_ENDPOINT")
+COS_API_KEY_ID = os.getenv("COS_API_KEY_ID")
+COS_SECRET_ACCESS_KEY = os.getenv("COS_SECRET_ACCESS_KEY")
+COS_BUCKET = os.getenv("COS_BUCKET")
 
-def get_session_data():
-    """Retrieves or initializes the server-side memory partition for the current user."""
-    session_id = session.get("session_id")
-    if not session_id or session_id not in SESSION_STORE:
-        session_id = str(uuid.uuid4())
-        session["session_id"] = session_id
-        SESSION_STORE[session_id] = {
+# Initialize the IBM S3 Client using HMAC keys
+cos_client = ibm_boto3.client(
+    "s3",
+    aws_access_key_id=COS_API_KEY_ID,
+    aws_secret_access_key=COS_SECRET_ACCESS_KEY,
+    endpoint_url=COS_ENDPOINT,
+    config=Config(signature_version="s3v4")
+)
+
+# Limit raw text character length to run safely inside Vercel's 10-second serverless execution window
+MAX_CHAR_LIMIT = 150000 
+
+def save_session_state(session_id, data_store):
+    """Saves the complete state of a session (text, chunks, embeddings, history) as a JSON file to IBM COS."""
+    try:
+        session_data = {
+            "document_text": data_store.get("document_text", ""),
+            "chunks": data_store.get("chunks", []),
+            "embeddings": data_store.get("embeddings", []),
+            "chat_history": data_store.get("chat_history", [])
+        }
+        cos_client.put_object(
+            Bucket=COS_BUCKET,
+            Key=f"sessions/{session_id}.json",
+            Body=json.dumps(session_data)
+        )
+        return True
+    except Exception as e:
+        app.logger.error(f"Failed to save session state to IBM COS: {str(e)}")
+        return False
+
+def load_session_state(session_id):
+    """Loads the complete session state from IBM COS, or returns an empty dictionary structure if missing."""
+    try:
+        response = cos_client.get_object(
+            Bucket=COS_BUCKET,
+            Key=f"sessions/{session_id}.json"
+        )
+        return json.loads(response['Body'].read().decode('utf-8'))
+    except Exception:
+        # Return a clean template structure if file does not exist yet
+        return {
+            "document_text": "",
             "chunks": [],
             "embeddings": [],
-            "document_text": "",
             "chat_history": []
         }
-    return session_id, SESSION_STORE[session_id]
 
 # =====================================================================
 # PURE PYTHON RAG UTILITIES (Math & Chunking)
@@ -90,7 +122,6 @@ def chunk_text(text, chunk_size=300, chunk_overlap=50):
     if word_count == 0:
         return []
     
-    # If the text is shorter than the desired chunk size, return it as one chunk
     if word_count <= chunk_size:
         return [text]
         
@@ -116,11 +147,11 @@ def cosine_similarity(v1, v2):
     return dot_product(v1, v2) / (mag1 * mag2)
 
 # =====================================================================
-# LIVE WEB RETRIEVAL (To ground model generations in real-world facts)
+# LIVE WEB RETRIEVAL
 # =====================================================================
 
 def search_web(query, max_results=3):
-    """Fetches search results from Tavily API to provide current regulatory standard context."""
+    """Fetches real-world search results from Tavily API to ground the model."""
     if not TAVILY_API_KEY:
         app.logger.warning("TAVILY_API_KEY not found in environment. Web search skipped.")
         return ""
@@ -262,12 +293,11 @@ def extract_text(file_stream, filename):
     
     elif ext == 'pdf':
         try:
-            # Prefer modern pypdf first, fall back to PyPDF2 if that is installed
             try:
                 import pypdf as pdf_lib
             except ImportError:
                 import PyPDF2 as pdf_lib
-                
+            
             pdf_reader = pdf_lib.PdfReader(io.BytesIO(file_stream.read()))
             text_slices = []
             for page in pdf_reader.pages:
@@ -290,10 +320,11 @@ def extract_text(file_stream, filename):
         except Exception:
             return "[Error: Unsupported file format]"
 
-def retrieve_relevant_chunks(session_id, query, top_k=5):
+def retrieve_relevant_chunks(data_store, query, top_k=5):
     """Finds top_k most relevant chunks using Cosine Similarity."""
-    store = SESSION_STORE.get(session_id)
-    if not store or not store.get("chunks") or not store.get("embeddings"):
+    chunks = data_store.get("chunks", [])
+    embeddings = data_store.get("embeddings", [])
+    if not chunks or not embeddings:
         return []
         
     query_embeddings = get_watsonx_embeddings([query])
@@ -302,7 +333,7 @@ def retrieve_relevant_chunks(session_id, query, top_k=5):
     query_vector = query_embeddings[0]
     
     scored_chunks = []
-    for chunk, chunk_vector in zip(store["chunks"], store["embeddings"]):
+    for chunk, chunk_vector in zip(chunks, embeddings):
         similarity = cosine_similarity(query_vector, chunk_vector)
         scored_chunks.append((chunk, similarity))
         
@@ -315,14 +346,19 @@ def retrieve_relevant_chunks(session_id, query, top_k=5):
 
 @app.route('/')
 def index():
-    # Setup server-side partition and clear client data
-    get_session_data()
+    # Setup state initialization on load
+    session_id = session.get("session_id")
+    if not session_id:
+        session["session_id"] = str(uuid.uuid4())
     return render_template('index.html')
 
 @app.route('/api/upload', methods=['POST'])
 def upload_document():
     """Handles parsing from files or custom text pastes and builds vector indexes."""
-    session_id, data_store = get_session_data()
+    session_id = session.get("session_id")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        session["session_id"] = session_id
 
     text = ""
     filename = ""
@@ -338,11 +374,16 @@ def upload_document():
         filename = "Pasted Clipboard Text"
             
     if text:
-        # Reset local structures safely in server-side session memory
-        data_store["document_text"] = text
-        data_store["chat_history"] = []
-        data_store["chunks"] = []
-        data_store["embeddings"] = []
+        # Enforce serverless safe execution size limit
+        if len(text) > MAX_CHAR_LIMIT:
+            text = text[:MAX_CHAR_LIMIT] + "\n\n[Document automatically truncated to fit serverless processing limits]"
+
+        data_store = {
+            "document_text": text,
+            "chat_history": [],
+            "chunks": [],
+            "embeddings": []
+        }
 
         # Process chunks and vector index
         chunks = chunk_text(text)
@@ -352,13 +393,16 @@ def upload_document():
                 data_store["chunks"] = chunks
                 data_store["embeddings"] = embeddings
         
+        # Save complete parsed state document to IBM COS bucket
+        save_session_state(session_id, data_store)
+        
         return jsonify({"status": "success", "text": text, "filename": filename})
 
     return jsonify({"status": "error", "message": "No valid document text received."})
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Handles user prompts, retrieving target context from local RAG and live web search."""
+    """Handles user prompts, retrieving target context from local COS RAG and live web search."""
     data = request.get_json() or {}
     user_msg = data.get("message", "").strip()
     is_initial_review = data.get("initial_review", False)
@@ -366,41 +410,43 @@ def chat():
     if not user_msg and not is_initial_review:
         return jsonify({"status": "error", "message": "Message content is empty."})
     
-    session_id, data_store = get_session_data()
-    doc_text = data_store["document_text"]
-    history = data_store["chat_history"]
+    session_id = session.get("session_id")
+    if not session_id:
+        return jsonify({"status": "error", "message": "No active session ID established."})
+
+    # Retrieve current state from IBM Cloud Storage securely
+    data_store = load_session_state(session_id)
+    doc_text = data_store.get("document_text", "")
+    history = data_store.get("chat_history", [])
     
     if is_initial_review:
         if not doc_text:
             return jsonify({"status": "error", "message": "Please upload or paste a document first."})
         user_msg = "Please perform an initial compliance and risk review of this document, and provide concrete recommendations based on best practices and regulations."
-        data_store["chat_history"] = []
         history = []
+        data_store["chat_history"] = []
 
     # 1. LOCAL DOCUMENT CONTEXT (Via Vector Search)
     context_text = ""
-    if doc_text and session_id:
+    if doc_text:
         if is_initial_review:
-            # Anchor queries for initial analysis around common compliance friction points
+            # Anchors for initial analysis
             search_query = "liability limitation, compliance breaches, governing law, termination clauses, indemnification terms"
-            retrieved_chunks = retrieve_relevant_chunks(session_id, search_query, top_k=5)
+            retrieved_chunks = retrieve_relevant_chunks(data_store, search_query, top_k=5)
         else:
-            retrieved_chunks = retrieve_relevant_chunks(session_id, user_msg, top_k=4)
+            retrieved_chunks = retrieve_relevant_chunks(data_store, user_msg, top_k=4)
             
         if retrieved_chunks:
             context_text = "\n\n---\n\n".join(retrieved_chunks)
         else:
-            # Fallback to simple context truncation if search returned empty
             context_text = doc_text[:3000]
 
-    # 2. REAL-WORLD DATA CONTEXT (Via Live Web Search)
+    # 2. REAL-WORLD DATA CONTEXT
     web_context = ""
-    # Decide if a web search is needed based on query terms or missing document context
     search_triggers = ["update", "news", "regulation", "law", "statute", "latest", "rule", "standard", "gdpr", "sec", "compliance", "policy"]
     needs_web_search = not doc_text or any(kw in user_msg.lower() for kw in search_triggers)
     
     if needs_web_search and TAVILY_API_KEY:
-        # Formulate search query focusing on regulatory facts or standards
         search_query = f"site:gov OR legal OR regulatory standards {user_msg}" if not doc_text else f"standard industry compliance rule for {user_msg}"
         web_context = search_web(search_query, max_results=3)
 
@@ -422,12 +468,15 @@ def chat():
     
     ai_response = query_watsonx(full_prompt)
     
-    # Save step to server-side session's memory
+    # Save the interaction record
     history.append({
         "content": user_msg,
         "response": ai_response
     })
     data_store["chat_history"] = history
+    
+    # Write updated state document back to the IBM COS bucket
+    save_session_state(session_id, data_store)
     
     return jsonify({
         "status": "success",
@@ -437,13 +486,20 @@ def chat():
 
 @app.route('/api/clear', methods=['POST'])
 def clear_session():
-    """Wipes active workspace states and deletes the in-memory vectors."""
+    """Wipes active session state file on IBM COS."""
     session_id = session.get("session_id")
-    if session_id in SESSION_STORE:
-        del SESSION_STORE[session_id]
-        
-    # Reinitialize a clean partition
-    get_session_data()
+    if session_id:
+        try:
+            cos_client.delete_object(
+                Bucket=COS_BUCKET,
+                Key=f"sessions/{session_id}.json"
+            )
+        except Exception:
+            pass
+            
+    # Reset local cookies and create a clean identifier
+    session.clear()
+    session["session_id"] = str(uuid.uuid4())
     return jsonify({"status": "success"})
 
 if __name__ == '__main__':
