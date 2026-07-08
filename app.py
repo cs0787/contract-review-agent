@@ -7,12 +7,16 @@ import requests
 import ibm_boto3
 from ibm_botocore.client import Config
 from flask import Flask, render_template, request, jsonify, session
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 # Load variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+# We specify template_folder='.' so Flask can find index.html in the root folder
+app = Flask(__name__, template_folder='.')
+CORS(app, supports_credentials=True)
+
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "monochrome_agent_secret_key_1337")
 
 # =====================================================================
@@ -69,7 +73,7 @@ cos_client = ibm_boto3.client(
     config=Config(signature_version="s3v4")
 )
 
-# Limit raw text character length to run safely inside Vercel's 10-second serverless execution window
+# Limit raw text character length to run safely inside 10-second request windows
 MAX_CHAR_LIMIT = 150000 
 
 def save_session_state(session_id, data_store):
