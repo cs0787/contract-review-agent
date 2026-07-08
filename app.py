@@ -4,8 +4,7 @@ import uuid
 import math
 import json
 import requests
-import ibm_boto3
-from ibm_botocore.client import Config
+import psycopg2
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -13,7 +12,7 @@ from dotenv import load_dotenv
 # Load variables from .env file
 load_dotenv()
 
-# We specify template_folder='.' so Flask can find index.html in the root folder
+# Specify template_folder='.' so Flask serves index.html directly from the root
 app = Flask(__name__, template_folder='.')
 CORS(app, supports_credentials=True)
 
@@ -57,61 +56,102 @@ WATSONX_EMBEDDING_MODEL_ID = os.getenv("WATSONX_EMBEDDING_MODEL_ID", "ibm/slate-
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # =====================================================================
-# IBM CLOUD OBJECT STORAGE (COS) SETUP
+# NEON POSTGRESQL STATE STORE SETUP
 # =====================================================================
-COS_ENDPOINT = os.getenv("COS_ENDPOINT")
-COS_API_KEY_ID = os.getenv("COS_API_KEY_ID")
-COS_SECRET_ACCESS_KEY = os.getenv("COS_SECRET_ACCESS_KEY")
-COS_BUCKET = os.getenv("COS_BUCKET")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Initialize the IBM S3 Client using HMAC keys
-cos_client = ibm_boto3.client(
-    "s3",
-    aws_access_key_id=COS_API_KEY_ID,
-    aws_secret_access_key=COS_SECRET_ACCESS_KEY,
-    endpoint_url=COS_ENDPOINT,
-    config=Config(signature_version="s3v4")
-)
+def get_db_connection():
+    """Opens a fresh connection to your Neon database using the environment URL."""
+    return psycopg2.connect(DATABASE_URL)
 
-# Limit raw text character length to run safely inside standard request windows
+def init_db():
+    """Initializes the database schema if the sessions table is missing."""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id VARCHAR(255) PRIMARY KEY,
+                document_text TEXT,
+                chunks TEXT,
+                embeddings TEXT,
+                chat_history TEXT
+            );
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        app.logger.error(f"Database initialization failed: {str(e)}")
+
+# Run SQL schema check immediately on server launch
+if DATABASE_URL:
+    init_db()
+
+# Limit raw text character length to run safely inside Vercel's 10-second request window
 MAX_CHAR_LIMIT = 150000 
 
 def save_session_state(session_id, data_store):
-    """Saves the complete state of a session (text, chunks, embeddings, history) as a JSON file to IBM COS."""
+    """Persists the complete state of a session (text, chunks, embeddings, history) as JSON strings inside Neon Database."""
     try:
-        session_data = {
-            "document_text": data_store.get("document_text", ""),
-            "chunks": data_store.get("chunks", []),
-            "embeddings": data_store.get("embeddings", []),
-            "chat_history": data_store.get("chat_history", [])
-        }
-        cos_client.put_object(
-            Bucket=COS_BUCKET,
-            Key=f"sessions/{session_id}.json",
-            Body=json.dumps(session_data)
-        )
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Serialize fields into JSON format
+        chunks_json = json.dumps(data_store.get("chunks", []))
+        embeddings_json = json.dumps(data_store.get("embeddings", []))
+        history_json = json.dumps(data_store.get("chat_history", []))
+        doc_text = data_store.get("document_text", "")
+        
+        cur.execute("""
+            INSERT INTO sessions (session_id, document_text, chunks, embeddings, chat_history)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (session_id) DO UPDATE 
+            SET document_text = EXCLUDED.document_text,
+                chunks = EXCLUDED.chunks,
+                embeddings = EXCLUDED.embeddings,
+                chat_history = EXCLUDED.chat_history;
+        """, (session_id, doc_text, chunks_json, embeddings_json, history_json))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
         return True
     except Exception as e:
-        app.logger.error(f"Failed to save session state to IBM COS: {str(e)}")
+        app.logger.error(f"Failed to save session state to Neon Database: {str(e)}")
         return False
 
 def load_session_state(session_id):
-    """Loads the complete session state from IBM COS, or returns an empty dictionary structure if missing."""
+    """Loads the complete session state from Neon Database, or returns a clean template structure."""
     try:
-        response = cos_client.get_object(
-            Bucket=COS_BUCKET,
-            Key=f"sessions/{session_id}.json"
-        )
-        return json.loads(response['Body'].read().decode('utf-8'))
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT document_text, chunks, embeddings, chat_history 
+            FROM sessions 
+            WHERE session_id = %s;
+        """, (session_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if row:
+            return {
+                "document_text": row[0],
+                "chunks": json.loads(row[1]) if row[1] else [],
+                "embeddings": json.loads(row[2]) if row[2] else [],
+                "chat_history": json.loads(row[3]) if row[3] else []
+            }
     except Exception as e:
-        app.logger.error(f"Failed to load session state from IBM COS: {str(e)}")
-        # Return a clean template structure if file does not exist yet
-        return {
-            "document_text": "",
-            "chunks": [],
-            "embeddings": [],
-            "chat_history": []
-        }
+        app.logger.error(f"Failed to load session state from Neon Database: {str(e)}")
+        
+    # Return empty template structure on load error or if row doesn't exist yet
+    return {
+        "document_text": "",
+        "chunks": [],
+        "embeddings": [],
+        "chat_history": []
+    }
 
 # =====================================================================
 # PURE PYTHON RAG UTILITIES (Math & Chunking)
@@ -398,11 +438,11 @@ def upload_document():
                 data_store["chunks"] = chunks
                 data_store["embeddings"] = embeddings
         
-        # Save complete parsed state document to IBM COS bucket and verify success
+        # Save complete parsed state document to Neon database and verify success
         if not save_session_state(session_id, data_store):
             return jsonify({
                 "status": "error", 
-                "message": "Failed to save document state to IBM Cloud Object Storage. Please verify that your COS_BUCKET name, regional COS_ENDPOINT, and HMAC credentials are correct inside your Railway variables."
+                "message": "Failed to save document state to your Neon Database. Please verify that your DATABASE_URL is correctly configured in your environment variables."
             })
         
         return jsonify({"status": "success", "text": text, "filename": filename})
@@ -411,7 +451,7 @@ def upload_document():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Handles user prompts, retrieving target context from local COS RAG and live web search."""
+    """Handles user prompts, retrieving target context from Neon RAG and live web search."""
     data = request.get_json() or {}
     user_msg = data.get("message", "").strip()
     is_initial_review = data.get("initial_review", False)
@@ -423,14 +463,14 @@ def chat():
     if not session_id:
         return jsonify({"status": "error", "message": "No active session ID established."})
 
-    # Retrieve current state from IBM Cloud Storage securely
+    # Retrieve current state from Neon Database securely
     data_store = load_session_state(session_id)
     doc_text = data_store.get("document_text", "")
     history = data_store.get("chat_history", [])
     
     if is_initial_review:
         if not doc_text:
-            return jsonify({"status": "error", "message": "Please upload or paste a document first (or your session state could not be retrieved from IBM COS)."})
+            return jsonify({"status": "error", "message": "Please upload or paste a document first (or your session state could not be retrieved from your database)."})
         user_msg = "Please perform an initial compliance and risk review of this document, and provide concrete recommendations based on best practices and regulations."
         history = []
         data_store["chat_history"] = []
@@ -484,7 +524,7 @@ def chat():
     })
     data_store["chat_history"] = history
     
-    # Write updated state document back to the IBM COS bucket
+    # Write updated state document back to Neon Database
     save_session_state(session_id, data_store)
     
     return jsonify({
@@ -495,14 +535,16 @@ def chat():
 
 @app.route('/api/clear', methods=['POST'])
 def clear_session():
-    """Wipes active session state file on IBM COS."""
+    """Wipes active session state record on Neon Database."""
     session_id = session.get("session_id")
     if session_id:
         try:
-            cos_client.delete_object(
-                Bucket=COS_BUCKET,
-                Key=f"sessions/{session_id}.json"
-            )
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM sessions WHERE session_id = %s;", (session_id,))
+            conn.commit()
+            cur.close()
+            conn.close()
         except Exception:
             pass
             
